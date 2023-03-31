@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	
+	<title>Time Privy</title>
+
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	
+	<link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A==" crossorigin=""/>
+    <link rel="stylesheet" href="js/jquery-ui-1.13.1/jquery-ui.min.css"/>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600&display=swap" rel="stylesheet">
+
+    <script type="text/javascript" src="js/leaflet.js"></script>
+    <script type="text/javascript" src="js/leaflet.ajax.min.js"></script>
+    <script type="text/javascript" src="js/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" src="js/jquery-ui-1.13.1/jquery-ui.min.js"></script>
+    
+
+	<style>
+		html, body {
+			height: 100%;
+			margin: 0;
+			font-family: 'Rajdhani', sans-serif;
+			font-size: 12pt;
+		}
+		fieldset {
+			border:  0;
+		}
+		select {
+			border: solid 1px #ccc;
+			border-radius:  4px;
+			padding: 5px 45px;
+			font-size: 1em;
+			font-family: 'Rajdhani', sans-serif;
+		}
+		#exportdialog {
+			width: 500px;
+			height: 500px;
+			position: absolute;
+			left: 50%;
+			margin-left:  -210px;
+			padding: 20px;
+			background-color: #fff;
+			border: solid 1px #ccc;
+			border-radius: 5px;
+			z-index: 5000;
+			top: 40%;
+			margin-top: -200px;
+			font-size: 1.1em;
+		}
+		#wrapperdialog {
+			opacity: 0.5;
+			width: 100%;
+			height: 100%;
+			position: fixed;
+			background-color: #fff;
+			z-index: 4000;
+			top: 0px;
+		}
+		#upload, input {
+			padding:  5px 15px;
+			margin-top: 15px;
+			font-size: 1em;
+			text-align: center;
+			font-family: 'Rajdhani', sans-serif;
+			border-radius: 4px;
+			border: solid 1px #999;
+			cursor: pointer;
+			background-color: #eee;
+		}
+		#upload:hover {
+			background-color: #ccc;
+		}
+		#title {
+			font-size:  3em;
+			font-weight: bold;
+			position: absolute;
+			z-index: 5000;
+			left: 80px;
+			top: 10px;
+			color: #333;
+		}
+	</style>
+	
+</head>
+<body>
+
+<div id="map" style="width: 100%; height: 100%;"></div>
+<div id="title">Platial <i>k</i>-anonymity</div>
+<div id="wrapperdialog"></div>
+<div id="exportdialog">
+	<span style='font-size:1.2em;font-weight:bold'>Upload a CSV file</span><br/><br/>
+	Upload a CSV file that contains a set of POI. Each POI should be its own row.  The columns should be <i>ID (integer), Category (string), Latitude (float), Longitude (float)</i>.  Please include a header with those column names.  The file should be comma delimited with string values in double quotes.  All categories should be one of <a href="https://location.foursquare.com/places/docs/categories">Foursquare's place types</a>.<br/><br/>
+	A sample file for testing is available here: <a href="test.csv">test.csv</a>.<br/><br/>
+	<input id="platialfile" type="file" name="platialfile" />
+	<div id="upload">Upload</div>
+</div>
+<div id="controls" style="position:absolute;z-index:1000;right:10px;top:10px;padding:10px;background-color:#fff;border-radius:3px;border:solid 1px #333;width:250px">
+	<fieldset>
+		<label for="slider">Select <i>k</i> number of POI</label>
+		<div id="slider" style="width:200px;margin-bottom:10px">
+	  		<div id="custom-handle" class="ui-slider-handle"></div>
+		</div>
+	</fieldset>
+	<fieldset>
+		<label for="day">Select a day of the week</label>
+	    <select name="day" id="day">
+	      <option value=0>Sunday</option>
+	      <option value=1>Monday</option>
+	      <option value=2>Tuesday</option>
+	      <option value=3>Wednesday</option>
+	      <option value=4>Thursday</option>
+	      <option value=5 selected="selected">Friday</option>
+	      <option value=6>Saturday</option>
+	    </select>
+	</fieldset>
+	<fieldset>
+		<label for="timepicker">Select a time of day</label>
+		<div id="timepicker" style="width:200px;margin-bottom:10px">
+			<div id="custom-handle2" class="ui-slider-handle"></div>
+		</div>
+	</fieldset>
+	<fieldset>
+		<label for="shape">Select a shape</label><br/>
+	    <select name="shape" id="shape">
+	      <option value=0 selected="selected">Convex Hull</option>
+	      <option value=1>Bounding Box</option>
+	      <option value=2>Circle</option>
+	    </select>
+	</fieldset>
+</div>
+<script>
+	var _region = null;
+	var _region2 = null;
+	var _bbox = null;
+	var _bbox2 = null;
+	var _points = null;
+	var _pid = 1;
+	var _shape = 0;
+	var _circle = null;
+	var _circle2 = null;
+	var _previous = null;
+
+	const map = L.map('map').setView([39.74739, -105], 13);
+
+	var tiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png', {
+		attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+		subdomains: 'abcd',
+		maxZoom: 20
+	}).addTo(map);
+
+	var _id = 1;
+
+	var areastyle = {
+		fillColor: '#8dd3c7',
+	    weight: 3,
+	    opacity: 1,
+	    color: '#8dd3c7',
+	    fillOpacity: 0.1
+	};
+
+	var areastyle2 = {
+		fillColor: '#bebada',
+	    weight: 3,
+	    opacity: 1,
+	    color: '#bebada',
+	    fillOpacity: 0.1
+	};
+
+	var style = {
+	    radius: 6,
+	    fillColor: "#000",
+	    color: "#fff",
+	    weight: 2,
+	    opacity: 1,
+	    fillOpacity: 0.7
+	};
+	var style2 = {
+	    radius: 10,
+	    fillColor: "#ff0000",
+	    color: "#fff",
+	    weight: 2,
+	    opacity: 1,
+	    fillOpacity: 0.7
+	};
+
+	function mapPoints() {
+		$.get( "getpoints.php", { id: _id} ).done(function( data ) {
+		  	
+
+		  	_points = L.geoJSON(data, {
+			    pointToLayer: function (feature, latlng) {
+			        return L.circleMarker(latlng, style);
+			    },
+			    onEachFeature: function(feature,layer) {
+			    	layer.setStyle(style);
+			    	layer.bindPopup("POI Identifier: "+feature.properties.pid + "<br/>Category: " + feature.properties.cat, {maxWidth : 500});
+		            layer.on("click",function(e) {
+		            	_selectedid = this.feature.properties.pid;
+		                _pid = this.feature.properties.pid;
+		                //this.setStyle(style2);
+		                getRegion();
+		                // _previous.setStyle(style);
+		            });
+		            layer.on('mouseover', function () {
+				      // var time = $( "#timepicker" ).slider( "option", "value" );
+					  // var day = $( "#day option:selected" ).text();
+					  // var content = this.feature.properties.pid+"<br/>"+this.feature.properties.cat;
+				      // this._popup.setContent(content);
+				      this.openPopup();
+				    });
+				    layer.on('mouseout', function (e) {
+			           this.closePopup();
+			           // this.setStyle(style);
+			        }); 
+		        }
+			}).addTo(map);
+
+			map.fitBounds(_points.getBounds());
+		});
+	}
+
+	function resetIcons(){
+	  map.eachLayer(function (layer) {
+	     layer.setStyle(style);
+	  });
+	}
+
+	function getRegion() {
+
+		if(map.hasLayer(_region))
+		  	map.removeLayer(_region);
+		if(map.hasLayer(_region2))
+		  	map.removeLayer(_region2);
+		if(map.hasLayer(_bbox))
+		  	map.removeLayer(_bbox);
+		if(map.hasLayer(_bbox2))
+		  	map.removeLayer(_bbox2);
+		if(map.hasLayer(_circle))
+		  	map.removeLayer(_circle);
+		if(map.hasLayer(_circle2))
+		  	map.removeLayer(_circle2);
+
+
+		var k = $( "#slider" ).slider( "option", "value" );
+		
+		if (_shape == 0) {
+			$.get( "gethull_ts.php", { k: k, pid: _pid, id: _id, ts: _idx} ).done(function( data ) {
+				_region2 = L.geoJSON(data, {
+				    style: areastyle2,
+				    onEachFeature: function (featureData, featureLayer) {
+				    	featureLayer.bindPopup("<b>Platial k-anonymity region</b><br/>Area: "+featureData.properties.area+" square meters.<br/><a href='#' onclick=exportDialog('"+JSON.stringify(featureData)+"')>View GeoJSON</a>");
+					  }
+				}).addTo(map);
+				$.get( "gethull.php", { k: k, pid: _pid, id: _id} ).done(function( data ) {
+					_region = L.geoJSON(data, {
+					    style: areastyle,
+					    onEachFeature: function (featureData, featureLayer) {
+					    	featureLayer.bindPopup("<b>Spatial k-anonymity region</b><br/>Area: "+featureData.properties.area+" square meters.<br/><a href='#' onclick=exportDialog('"+JSON.stringify(featureData)+"')>View GeoJSON</a>");
+						  }
+					}).addTo(map);
+				});
+			});
+
+			
+		} else if (_shape == 1) {
+			
+			$.get( "getbbox_ts.php", { k: k, pid: _pid, id: _id, ts: _idx} ).done(function( data ) {
+				_bbox2 = L.geoJSON(data, {
+				    style: areastyle2,
+				    onEachFeature: function (featureData, featureLayer) {
+				    	featureLayer.bindPopup("<b>Platial k-anonymity region</b></b><br/>Area: "+featureData.properties.area+" square meters.<br/><a href='#' onclick=exportDialog('"+JSON.stringify(featureData)+"')>View GeoJSON</a>");
+					  }
+				}).addTo(map);
+				$.get( "getbbox.php", { k: k, pid: _pid, id: _id} ).done(function( data ) {
+					_bbox = L.geoJSON(data, {
+					    style: areastyle,
+					    onEachFeature: function (featureData, featureLayer) {
+					    	featureLayer.bindPopup("<b>Spatial k-anonymity region</b><br/>Area: "+featureData.properties.area+" square meters.<br/><a href='#' onclick=exportDialog('"+JSON.stringify(featureData)+"')>View GeoJSON</a>");
+						  }
+					}).addTo(map);
+					
+				});
+			});
+		} else {
+
+			$.get( "getcircle_ts.php", { k: k, pid: _pid, id: _id, ts: _idx} ).done(function( data ) {
+				_circle2 = L.geoJSON(data, {
+				    style: areastyle2,
+				    onEachFeature: function (featureData, featureLayer) {
+				    	featureLayer.bindPopup("<b>Platial k-anonymity region</b><br/>Area: "+featureData.properties.area+" square meters.<br/><a href='#' onclick=exportDialog('"+JSON.stringify(featureData)+"')>View GeoJSON</a>");
+					}
+				}).addTo(map);
+				$.get( "getcircle.php", { k: k, pid: _pid, id: _id} ).done(function( data ) {
+					_circle = L.geoJSON(data, {
+					    style: areastyle,
+					    onEachFeature: function (featureData, featureLayer) {
+					    	featureLayer.bindPopup("<b>Spatial k-anonymity region</b><br/>Area: "+featureData.properties.area+" square meters.<br/><a href='#' onclick=exportDialog('"+JSON.stringify(featureData)+"')>View GeoJSON</a>");
+						}
+					}).addTo(map);
+					
+				});
+			});
+
+			
+
+
+		}
+		
+	}
+
+	$( function() {
+
+		_id = Date.now();
+
+		$('#wrapperdialog').click(function() {
+			$('#wrapperdialog').hide();
+			$('#exportdialog').hide();
+		});
+
+
+		$('#upload').on('click', function() {
+
+		    var file_data = $('#platialfile').prop('files')[0];   
+		    var form_data = new FormData();                  
+		    form_data.append('file', file_data);
+		    form_data.append('user', _id);
+		    //alert(form_data);           
+		    $('#exportdialog').html("<div style='margin:150px;'><img src='img/loading.gif'/></div>");                  
+		    $.ajax({
+		        url: 'upload.php', // <-- point to server-side PHP script 
+		        dataType: 'text',  // <-- what to expect back from the PHP script, if anything
+		        cache: false,
+		        contentType: false,
+		        processData: false,
+		        data: form_data,                         
+		        type: 'post',
+		        success: function(php_script_response){
+		            if (php_script_response == _id) {
+		            	$('#exportdialog').hide();
+		            	$('#wrapperdialog').hide();
+			            //alert('File uploaded successfully.'); // <-- display response from the PHP script, if any
+			        	mapPoints();
+			        } 
+		        }
+		     });
+		});
+
+
+	    var handle = $( "#custom-handle" );
+	    $( "#slider" ).slider({
+	  		min: 5,
+        	max: 20,
+      		value: 10,
+	      create: function() {
+	        handle.text( $( this ).slider( "value" ) );
+	      },
+	      slide: function( event, ui ) {
+	        handle.text( ui.value );     
+	      },
+	      stop: function(event, ui) {
+	      	setIdx();
+	      }
+	    });
+	    var handle2 = $( "#custom-handle2" );
+	    $( "#timepicker" ).slider({
+	  		min: 1,
+        	max: 24,
+      		value: 10,
+      		create: function() {
+		        handle2.text( $( this ).slider( "value" ) );
+		    },
+		    slide: function( event, ui ) {
+		       handle2.text( ui.value );      
+		    },
+		    stop: function(event, ui) {
+		    	setIdx();
+		    }
+	    });
+	    $('#day').change(function() {
+	    	setIdx();  
+	    });
+	    $('#shape').change(function() {
+	    	setIdx();  
+	    });
+	    setIdx();
+	  } );
+
+	function setIdx() {
+		var time = $( "#timepicker" ).slider( "option", "value" );
+		var day = $( "#day" ).val();
+		_idx = (day * 24) + time;
+		_shape = $( "#shape" ).val();
+		getRegion();
+		/* geojsonLayer.eachLayer(function(layer) {
+		  var val = layer.feature.properties.poptimes[_idx-1]
+		  layer.setStyle({fillColor :setColor(val)});
+		}); */
+	}
+
+	function exportDialog(val) {
+		var header = "<span style='font-size:1.5em;font-weight:bold'>GeoJSON</span><br/>";
+		$('#exportdialog').html(header+val);
+		$('#exportdialog').show();
+		$('#wrapperdialog').show();
+	}
+
+</script>
+
+
+
+</body>
+</html>

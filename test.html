@@ -1,0 +1,35 @@
+<html>
+	<head>
+		<script type="text/javascript" src="js/jquery-3.6.0.min.js"></script>
+    <script type="text/javascript" src="js/jquery-ui-1.13.1/jquery-ui.min.js"></script>
+	<script>
+		$( function() {
+			$('#upload').on('click', function() {
+			
+			    var file_data = $('#sortpicture').prop('files')[0];   
+			    var form_data = new FormData();                  
+			    form_data.append('file', file_data);
+			    form_data.append('user', 1);
+			    //alert(form_data);                             
+			    $.ajax({
+			        url: 'upload.php', // <-- point to server-side PHP script 
+			        dataType: 'text',  // <-- what to expect back from the PHP script, if anything
+			        cache: false,
+			        contentType: false,
+			        processData: false,
+			        data: form_data,                         
+			        type: 'post',
+			        success: function(php_script_response){
+			        	if (php_script_response == _id)
+			            	alert('success'); // <-- display response from the PHP script, if any
+			        }
+			     });
+			});
+		});
+	</script>
+	</head>
+	<body>
+		<input id="sortpicture" type="file" name="sortpic" />
+		<button id="upload">Upload</button>
+	</body>
+</html>
